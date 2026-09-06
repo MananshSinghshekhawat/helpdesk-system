@@ -1,0 +1,518 @@
+# CQHelper Helpdesk — Complete System Architecture & Analysis
+
+> **Branch:** `emailDraft` (both repos)
+> **Backend:** FastAPI + SQLAlchemy (async) + MySQL + Qdrant + Groq LLM
+> **Frontend:** Next.js (App Router) + TypeScript + Tailwind CSS
+> **Analysis Date:** 2026-06-23
+
+---
+
+## 1. High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend["helpdesk_ui (Next.js)"]
+        UI_Pages["Pages<br/>(Inbox, Tickets, Agents,<br/>Training, Analytics, Settings)"]
+        API_Client["lib/api.ts<br/>(HTTP Client)"]
+        Components["Components<br/>(Sidebar, Header, etc.)"]
+    end
+
+    subgraph Backend["helpdesk_api (FastAPI)"]
+        Router["API Routers<br/>/api/v1/*"]
+        Services["Service Layer"]
+        Repos["Repository Layer"]
+        Models["SQLAlchemy Models"]
+    end
+
+    subgraph External["External Systems"]
+        MySQL["MySQL Database"]
+        Qdrant["Qdrant Vector DB"]
+        Groq["Groq LLM API<br/>(llama-3.3-70b)"]
+        IMAP["IMAP Server<br/>(Gmail)"]
+        SMTP["SMTP Server<br/>(Gmail)"]
+    end
+
+    UI_Pages --> API_Client
+    API_Client -->|"HTTP REST"| Router
+    Router --> Services
+    Services --> Repos
+    Services --> Qdrant
+    Services --> Groq
+    Services --> IMAP
+    Services --> SMTP
+    Repos --> Models
+    Models --> MySQL
+```
+
+---
+
+## 2. Project Folder Structure
+
+### 2.1 Backend — `helpdesk_api/`
+
+```
+helpdesk_api/
+├── main.py                          # FastAPI app entry point, router registration, CORS, startup
+├── alembic.ini                      # Alembic DB migration config
+├── requirements.txt                 # Python dependencies
+├── .env.local                       # Environment variables (Groq key, SMTP creds)
+├── migrations/                      # Alembic migration scripts
+│
+└── app/
+    ├── api/                         # ── LAYER 1: API Routes (HTTP endpoints) ──
+    │   ├── __init__.py              # Router aggregation & exports
+    │   ├── tickets.py               # CRUD for tickets + reply
+    │   ├── ai_tickets.py            # AI suggest, auto-reply, drafts, send-draft
+    │   ├── ai_agents.py             # List & update AI agents
+    │   ├── analytics.py             # AI analytics dashboard data
+    │   ├── knowledge_bases.py       # KB CRUD, document upload, reindex
+    │   ├── skills.py                # Skill CRUD, assign-to-agent, test execution
+    │   ├── routing_rules.py         # Intent-based routing rule creation
+    │   ├── mailbox.py               # Mailbox CRUD
+    │   └── mailbox_sync.py          # Trigger email polling sync
+    │
+    ├── services/                    # ── LAYER 2: Business Logic ──
+    │   ├── ai_service.py            # AI draft generation, auto-reply, confidence check
+    │   ├── ticket_service.py        # Ticket creation, listing, reply + SMTP email send
+    │   ├── rag_service.py           # RAG retrieval, multi-source merge, reranking
+    │   ├── knowledge_base_service.py # KB management, PDF extraction, chunking, vectorization
+    │   ├── knowledge_ingestion.py   # Standalone KB ingestion (duplicate of above)
+    │   ├── skill_service.py         # Skill creation, assignment, external API execution
+    │   ├── llm_service.py           # Groq LLM integration (llama-3.3-70b)
+    │   ├── email_reader_service.py  # IMAP email fetching & parsing
+    │   ├── email_ticket_service.py  # Email → Ticket conversion + thread detection
+    │   ├── mailbox_processor.py     # Orchestrates: fetch emails → create tickets
+    │   ├── mailbox_service.py       # Mailbox CRUD service + IMAP test
+    │   ├── imap_service.py          # IMAP connection testing
+    │   └── smtp_service.py          # SMTP email sending via Gmail
+    │
+    ├── repositories/                # ── LAYER 3: Data Access (DB queries) ──
+    │   ├── __init__.py              # Repository exports
+    │   ├── ticket_repository.py     # Ticket + Customer + TicketMessage CRUD
+    │   ├── ai_repository.py         # AI Agent, AIDraft, AIInvocationLog CRUD
+    │   ├── knowledge_base_repository.py # KB + KnowledgeDocument CRUD
+    │   ├── skill_repository.py      # Skill + AIAgentSkill CRUD
+    │   ├── customer_repository.py   # Customer lookup/creation (email channel)
+    │   ├── ticket_message_repository.py # Message-ID thread lookup
+    │   ├── mailbox_repository.py    # Mailbox CRUD + active listing
+    │   └── user_repository.py       # User + Role lookup
+    │
+    ├── models/                      # ── LAYER 4: Database Models (SQLAlchemy ORM) ──
+    │   ├── __init__.py              # All model imports
+    │   ├── base.py                  # DeclarativeBase
+    │   ├── organization.py          # Organization (tenant)
+    │   ├── user.py                  # User (agent/admin)
+    │   ├── role.py                  # Role (RBAC)
+    │   ├── customer.py              # Customer (end-user)
+    │   ├── ticket.py                # Support ticket
+    │   ├── ticket_message.py        # Ticket conversation messages
+    │   ├── ticket_assignment.py     # Ticket assignment history
+    │   ├── ai_agent.py              # AI agent configuration
+    │   ├── ai_agent_skill.py        # Agent ↔ Skill mapping
+    │   ├── ai_draft.py              # AI-generated reply drafts
+    │   ├── ai_draft_vector_meta.py  # Draft vector metadata
+    │   ├── ai_invocation_log.py     # AI usage audit log
+    │   ├── knowledge_base.py        # Knowledge base (common/agent-scoped)
+    │   ├── knowledge_document.py    # Uploaded documents
+    │   ├── kb_vector_meta.py        # KB chunk → Qdrant vector mapping
+    │   ├── ticket_vector_meta.py    # Ticket → Qdrant vector mapping
+    │   ├── routing_rule.py          # Intent-based routing rules
+    │   ├── skill.py                 # External API skill definitions
+    │   └── mailbox.py               # Email mailbox (IMAP config)
+    │
+    ├── schemas/                     # ── Pydantic Schemas (request/response validation) ──
+    │   ├── __init__.py              # Schema exports
+    │   ├── ai.py                    # AI suggest/auto-reply/draft schemas
+    │   ├── ai_agent.py              # AI agent schemas
+    │   ├── analytics.py             # Analytics response schema
+    │   ├── auth.py                  # Login/user schemas
+    │   ├── base.py                  # Base schema
+    │   ├── knowledge_base.py        # KB + document schemas
+    │   ├── mailbox.py               # Mailbox schemas
+    │   ├── routing.py               # Routing rule schemas (v2)
+    │   ├── routing_rule.py          # Routing rule schemas (v1)
+    │   ├── skill.py                 # Skill schemas
+    │   └── ticket.py                # Ticket + message schemas
+    │
+    ├── rag/                         # ── Vector Search Layer ──
+    │   ├── qdrant_client.py         # Qdrant wrapper (CRUD, search)
+    │   └── retriever.py             # Retriever interface
+    │
+    ├── core/                        # ── Cross-cutting Concerns ──
+    │   ├── settings.py              # App settings (DB, Qdrant, Groq)
+    │   ├── config.py                # JWT config
+    │   ├── auth.py                  # Auth (FULLY COMMENTED OUT)
+    │   ├── middleware.py            # Request logging middleware
+    │   ├── exceptions.py            # Custom exception classes
+    │   └── error_handlers.py        # Global error handlers
+    │
+    └── db/
+        └── session.py               # Async SQLAlchemy engine & session factory
+```
+
+### 2.2 Frontend — `helpdesk_ui/`
+
+```
+helpdesk_ui/
+├── next.config.mjs                  # Next.js config
+├── package.json                     # Dependencies (next, lucide-react, sonner, etc.)
+├── tsconfig.json                    # TypeScript config
+├── .env.local                       # API base URL (http://127.0.0.1:8000)
+│
+├── lib/
+│   ├── api.ts                       # ── Central API client (ALL backend calls) ──
+│   └── utils.ts                     # Utility functions
+│
+├── app/
+│   ├── layout.tsx                   # Root layout (Geist font, dark mode, Toaster)
+│   ├── globals.css                  # Global styles (Tailwind + CSS vars)
+│   ├── page.tsx                     # "/" → Inbox/Dashboard page
+│   ├── inbox/page.tsx               # "/inbox" → Inbox view
+│   ├── tickets/
+│   │   ├── page.tsx                 # "/tickets" → Ticket list + create
+│   │   └── detail/                  # "/tickets/detail" → Ticket detail
+│   ├── agents/page.tsx              # "/agents" → AI agent management
+│   ├── analytics/
+│   │   ├── page.tsx                 # "/analytics" → AI analytics dashboard
+│   │   └── analytics.module.css     # Analytics-specific styles
+│   ├── training/page.tsx            # "/training" → KB management + skills + routing
+│   ├── settings/page.tsx            # "/settings" → App settings
+│   └── auth/
+│       ├── login/                   # "/auth/login" → Login page
+│       └── forgot-password/         # "/auth/forgot-password"
+│
+├── components/
+│   ├── app-layout.tsx               # Shell layout with sidebar
+│   ├── sidebar.tsx                  # Navigation sidebar
+│   ├── header.tsx                   # Top header bar
+│   ├── ticket-row.tsx               # Ticket list item component
+│   ├── message-thread.tsx           # Message conversation view
+│   ├── ai-assistance-panel.tsx      # AI suggestion/draft panel
+│   ├── ai-agent-list.tsx            # AI agent cards
+│   ├── ai-agent-detail.tsx          # Single agent detail
+│   └── ui/                          # Shared UI primitives
+│
+└── public/                          # Static assets (icons, etc.)
+```
+
+---
+
+## 3. Complete API Endpoint Map & Call Chains
+
+### 3.1 Tickets
+
+| Method | Endpoint | Frontend Call | API → Service → Repository Chain |
+|--------|----------|---------------|----------------------------------|
+| `POST` | `/api/v1/tickets` | `createTicket()` | [tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/tickets.py#L30-L46) → [ticket_service.create_ticket()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ticket_service.py#L53-L107) → `ticket_repository.create_customer()` → `ticket_repository.create_ticket()` → `ticket_repository.create_ticket_message()` |
+| `GET` | `/api/v1/tickets` | `listTickets()` | [tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/tickets.py#L49-L63) → [ticket_service.list_tickets()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ticket_service.py#L110-L126) → `ticket_repository.get_tickets()` |
+| `GET` | `/api/v1/tickets/{id}` | `getTicket()` | [tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/tickets.py#L66-L85) → [ticket_service.get_ticket_detail()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ticket_service.py#L129-L139) → `ticket_repository.get_ticket_by_id()` + `get_ticket_messages()` |
+| `POST` | `/api/v1/tickets/{id}/reply` | `replyToTicket()` | [tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/tickets.py#L88-L113) → [ticket_service.add_ticket_reply()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ticket_service.py#L142-L247) → `create_ticket_message()` → `smtp_service.send_email()` → `update_ticket_status("waiting")` |
+
+### 3.2 AI Tickets
+
+| Method | Endpoint | Frontend Call | Chain |
+|--------|----------|---------------|-------|
+| `POST` | `/api/v1/tickets/{id}/ai/suggest` | `suggestAiReply()` | [ai_tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_tickets.py#L63-L95) → [ai_service.generate_ai_draft()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ai_service.py#L144-L245) → `rag_service.retrieve_context()` → `llm_service.generate_groq_reply()` → `ai_repository.create_ai_draft()` + `log_ai_invocation()` |
+| `POST` | `/api/v1/tickets/{id}/ai/auto-reply` | `autoReplyTicket()` | [ai_tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_tickets.py#L98-L136) → [ai_service.auto_reply()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ai_service.py#L248-L344) → `generate_ai_draft()` → confidence check → `create_ticket_message(sender_type="ai")` → `update_ticket_status("waiting")` |
+| `GET` | `/api/v1/tickets/{id}/ai/drafts` | `listAiDrafts()` | [ai_tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_tickets.py#L139-L155) → `ai_service.get_ai_drafts()` → `ai_repository.get_ai_drafts_by_ticket()` |
+| `POST` | `/api/v1/tickets/{id}/ai/drafts/{draft_id}/send` | `sendAiDraft()` | [ai_tickets.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_tickets.py#L158-L204) → [ai_service.send_ai_draft()](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ai_service.py#L363-L429) → `update_ai_draft(is_sent=True)` → `create_ticket_message(sender_type="human")` |
+
+### 3.3 AI Agents
+
+| Method | Endpoint | Frontend Call | Chain |
+|--------|----------|---------------|-------|
+| `GET` | `/api/v1/ai-agents` | `listAiAgents()` | [ai_agents.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_agents.py#L14-L33) → Direct DB query on `AIAgent` |
+| `PUT` | `/api/v1/ai-agents/{id}` | `updateAiAgent()` | [ai_agents.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_agents.py#L36-L64) → Direct DB update on `AIAgent` |
+
+### 3.4 Knowledge Bases
+
+| Method | Endpoint | Frontend Call | Chain |
+|--------|----------|---------------|-------|
+| `GET` | `/api/v1/knowledge-bases` | `listKnowledgeBases()` | [knowledge_bases.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/knowledge_bases.py#L27-L37) → `kb_service.list_knowledge_bases()` → `kb_repository.list_knowledge_bases()` |
+| `POST` | `/api/v1/knowledge-bases` | `createKnowledgeBase()` | [knowledge_bases.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/knowledge_bases.py#L40-L57) → `kb_service.create_knowledge_base()` → `kb_repository.create_knowledge_base()` |
+| `GET` | `/api/v1/knowledge-bases/{id}/documents` | `listKnowledgeBaseDocuments()` | [knowledge_bases.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/knowledge_bases.py#L73-L89) → Direct DB query on `KnowledgeDocument` |
+| `POST` | `/api/v1/knowledge-bases/{id}/documents` | `uploadKnowledgeBaseDocument()` | [knowledge_bases.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/knowledge_bases.py#L92-L109) → `kb_service.upload_document()` → extract text → `create_document()` → **background task:** `ingest_document()` → chunk → vectorize → Qdrant insert |
+| `POST` | `/api/v1/knowledge-bases/{id}/reindex` | `reindexKnowledgeBase()` | [knowledge_bases.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/knowledge_bases.py#L112-L121) → `kb_service.reindex_knowledge_base()` → re-ingests all documents |
+
+### 3.5 Skills
+
+| Method | Endpoint | Frontend Call | Chain |
+|--------|----------|---------------|-------|
+| `GET` | `/api/v1/skills` | `listSkills()` | [skills.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/skills.py#L56-L61) → `skill_service.list_skills()` |
+| `POST` | `/api/v1/skills` | `createSkill()` | [skills.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/skills.py#L64-L81) → `skill_service.create_skill()` |
+| `POST` | `/api/v1/ai-agents/{id}/skills` | `assignSkillToAgent()` | [skills.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/skills.py#L84-L107) → `skill_service.assign_skill_to_agent()` |
+| `POST` | `/api/v1/skills/{id}/test` | `testSkill()` | [skills.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/skills.py#L110-L129) → `skill_service.execute_skill()` → `httpx.AsyncClient` → External API |
+
+### 3.6 Routing Rules, Analytics, Mailbox
+
+| Method | Endpoint | Frontend Call | Chain |
+|--------|----------|---------------|-------|
+| `POST` | `/api/v1/routing-rules` | (Training page) | [routing_rules.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/routing_rules.py#L15-L56) → Direct DB insert with priority conflict check |
+| `GET` | `/api/v1/analytics/ai` | `getAiAnalytics()` | [analytics.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/analytics.py#L20-L87) → Complex multi-table query (Tickets + AIInvocationLog + AIDraft + TicketMessage) |
+| `POST` | `/api/v1/mailboxes` | (Settings page) | [mailbox.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/mailbox.py#L29-L59) → `mailbox_service.create_mailbox_service()` → IMAP test → DB save |
+| `GET` | `/api/v1/mailboxes` | (Settings page) | [mailbox.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/mailbox.py#L62-L74) → `mailbox_service.list_mailboxes_service()` |
+| `POST` | `/api/v1/mailbox-sync` | (Manual trigger) | [mailbox_sync.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/mailbox_sync.py#L18-L30) → `mailbox_processor.process_mailboxes()` → IMAP fetch → `email_ticket_service.create_ticket_from_email()` |
+
+---
+
+## 4. Core Data Flow Diagrams
+
+### 4.1 AI Reply Generation Pipeline
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend
+    participant API as /ai/suggest
+    participant AI as ai_service
+    participant RAG as rag_service
+    participant Qdrant as Qdrant DB
+    participant LLM as Groq LLM
+    participant DB as MySQL
+
+    UI->>API: POST /tickets/{id}/ai/suggest
+    API->>DB: Verify ticket exists + org match
+    API->>AI: generate_ai_draft(ticket_id, agent_type)
+    AI->>DB: Get ticket + messages
+    AI->>DB: Find active AI agent by type
+    AI->>RAG: retrieve_context(org_id, agent_id, query)
+    RAG->>DB: Get KB vector metadata (agent + common)
+    RAG->>DB: Get ticket vector metadata
+    RAG->>Qdrant: search_vectors (3 sources)
+    Qdrant-->>RAG: Scored points
+    RAG->>RAG: Merge + Rerank (70% similarity + 20% confidence + 10% recency)
+    RAG-->>AI: Top-K context chunks
+    AI->>LLM: generate_groq_reply(subject, message, context)
+    LLM-->>AI: Generated reply text
+    AI->>AI: Calculate confidence score
+    AI->>DB: Save AIDraft + AIInvocationLog
+    AI-->>API: AIDraft object
+    API-->>UI: {draft_id, draft_text, confidence_score}
+```
+
+### 4.2 Email Ingestion Pipeline
+
+```mermaid
+sequenceDiagram
+    participant Trigger as POST /mailbox-sync
+    participant Proc as mailbox_processor
+    participant IMAP as email_reader_service
+    participant Gmail as Gmail IMAP
+    participant ETS as email_ticket_service
+    participant DB as MySQL
+
+    Trigger->>Proc: process_mailboxes(db)
+    Proc->>DB: list_active_mailboxes()
+    loop For each mailbox
+        Proc->>IMAP: fetch_unread_emails(mailbox)
+        IMAP->>Gmail: IMAP4_SSL connect + login
+        IMAP->>Gmail: SEARCH UNSEEN
+        Gmail-->>IMAP: Email IDs
+        loop For each email
+            IMAP->>Gmail: FETCH (RFC822)
+            IMAP->>IMAP: Parse headers (From, Subject, Message-ID, In-Reply-To, References)
+            IMAP->>IMAP: Extract body (text/plain or html→text)
+            IMAP->>Gmail: Mark as SEEN
+        end
+        IMAP-->>Proc: List of email dicts
+        loop For each email
+            Proc->>ETS: create_ticket_from_email(email_data)
+            ETS->>DB: Find/Create Customer
+            ETS->>DB: Thread detection (In-Reply-To → message_id lookup)
+            ETS->>DB: Fallback: References header → message_id lookup
+            alt Thread match found
+                ETS->>DB: Add message to existing ticket
+            else New conversation
+                ETS->>DB: Create new Ticket + first message
+            end
+        end
+    end
+```
+
+### 4.3 Agent Reply + Email Send Flow
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend
+    participant API as POST /tickets/{id}/reply
+    participant SVC as ticket_service
+    participant SMTP as smtp_service
+    participant Gmail as Gmail SMTP
+    participant DB as MySQL
+
+    UI->>API: {message: "reply text"}
+    API->>DB: Verify ticket exists + org match
+    API->>SVC: add_ticket_reply(ticket_id, message)
+    SVC->>DB: Save TicketMessage (sender_type="human")
+    SVC->>DB: Get Customer by ticket.customer_id
+    SVC->>SMTP: send_email(customer.email, subject, body)
+    SMTP->>Gmail: SMTP_SSL connect + login
+    SMTP->>Gmail: Send email with Message-ID header
+    Gmail-->>SMTP: Success
+    SMTP-->>SVC: generated Message-ID
+    SVC->>DB: Update TicketMessage.message_id = generated_id
+    SVC->>DB: Update ticket status → "waiting"
+    SVC-->>API: TicketMessage
+    API-->>UI: Message response
+```
+
+---
+
+## 5. Database Entity Relationship
+
+```mermaid
+erDiagram
+    Organization ||--o{ User : has
+    Organization ||--o{ Customer : has
+    Organization ||--o{ Ticket : has
+    Organization ||--o{ AIAgent : has
+    Organization ||--o{ KnowledgeBase : has
+    Organization ||--o{ Skill : has
+    Organization ||--o{ RoutingRule : has
+
+    Customer ||--o{ Ticket : creates
+    Ticket ||--o{ TicketMessage : contains
+    Ticket ||--o{ TicketAssignment : assigned_via
+    Ticket ||--o{ AIDraft : has_drafts
+    Ticket ||--o{ AIInvocationLog : logged_by
+
+    AIAgent ||--o{ AIAgentSkill : has_skills
+    AIAgent ||--o{ AIDraft : generates
+    AIAgent ||--o{ AIInvocationLog : logged_by
+    AIAgent ||--o{ RoutingRule : handles
+
+    Skill ||--o{ AIAgentSkill : assigned_to
+
+    KnowledgeBase ||--o{ KnowledgeDocument : contains
+    KnowledgeDocument ||--o{ KBVectorMeta : vectorized_as
+
+    Ticket ||--o{ TicketVectorMeta : vectorized_as
+    AIDraft ||--o{ AIDraftVectorMeta : vectorized_as
+
+    User ||--o{ Role : has_role
+    Mailbox ||--o{ Ticket : "receives emails for"
+```
+
+### Key Model Fields
+
+| Model | Key Columns | Notes |
+|-------|-------------|-------|
+| **Ticket** | `id, organization_id, customer_id, channel(email/web/api), subject, status(new/assigned/in_progress/waiting/escalated/resolved/closed), message_id, current_owner_type(human/ai), ai_enabled` | `message_id` stores the email Message-ID for thread matching |
+| **TicketMessage** | `id, ticket_id, sender_type(customer/human/ai/system), sender_id, message_body, message_id, is_internal_note` | `message_id` stores the SMTP Message-ID for reply threading |
+| **Customer** | `id, organization_id, name, email, phone` | Deduplicated by email per org |
+| **AIAgent** | `id, organization_id, name, type(router/delivery/sales/billing/support), confidence_threshold, is_active` | Configurable threshold for auto-reply gating |
+| **AIDraft** | `id, ticket_id, ai_agent_id, draft_text, confidence_score, is_sent, sent_at` | Stores all AI-generated suggestions |
+| **KnowledgeBase** | `id, organization_id, name, scope(common/agent), agent_id` | `scope=agent` ties KB to specific AI agent |
+| **KnowledgeDocument** | `id, organization_id, knowledge_base_id, title, type, status(uploaded/processing/indexed/failed), content` | Full extracted text stored in `content` |
+| **KBVectorMeta** | `id, organization_id, knowledge_base_id, document_id, chunk_index, chunk_text, qdrant_point_id, confidence_weight` | Maps DB ↔ Qdrant vector IDs |
+| **Skill** | `id, organization_id, name, endpoint_url, http_method, auth_type(none/api_key/oauth), timeout_ms` | External API integration definition |
+| **RoutingRule** | `id, organization_id, intent, ai_agent_id, ai_enabled, ai_mode(suggest_only/auto_reply), priority, active` | Intent → Agent routing |
+| **Mailbox** | `id, email, password, imap_host, imap_port, department, is_active` | **Missing `organization_id`** |
+
+---
+
+## 6. Frontend → Backend API Mapping
+
+| Frontend Page | File | API Calls Used |
+|---------------|------|----------------|
+| **Inbox** (/) | [page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/page.tsx) | `listTickets()`, `getTicket()` |
+| **Inbox** (/inbox) | [inbox/page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/inbox/page.tsx) | `listTickets()`, `getTicket()`, `replyToTicket()` |
+| **Tickets** | [tickets/page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/tickets/page.tsx) | `listTickets()`, `createTicket()`, `getTicket()`, `replyToTicket()` |
+| **AI Agents** | [agents/page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/agents/page.tsx) | `listAiAgents()`, `updateAiAgent()` |
+| **Analytics** | [analytics/page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/analytics/page.tsx) | `getAiAnalytics()` |
+| **Training** | [training/page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/training/page.tsx) | `listKnowledgeBases()`, `createKnowledgeBase()`, `listKnowledgeBaseDocuments()`, `uploadKnowledgeBaseDocument()`, `reindexKnowledgeBase()`, `listSkills()`, `createSkill()`, `assignSkillToAgent()`, `testSkill()`, `listAiAgentOptions()` |
+| **Settings** | [settings/page.tsx](file:///c:/Users/adity/cqhelper/helpdesk_ui/app/settings/page.tsx) | Mailbox management (if implemented) |
+
+### Central API Client Architecture
+
+[lib/api.ts](file:///c:/Users/adity/cqhelper/helpdesk_ui/lib/api.ts) provides:
+- **`apiFetch<T>(path, options)`** — Generic HTTP wrapper with auto JSON, Bearer token from localStorage, error parsing
+- All API functions are typed with TypeScript interfaces
+- Base URL from `NEXT_PUBLIC_API_BASE_URL` env var
+
+---
+
+## 7. RAG (Retrieval-Augmented Generation) Deep Dive
+
+The RAG system in [rag_service.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/rag_service.py) retrieves context from **3 sources**:
+
+| Source | Purpose | Filter |
+|--------|---------|--------|
+| **Agent-specific KB** | Knowledge docs uploaded to agent's own KB | `scope=agent` + `agent_id=X` |
+| **Common KB** | Shared organizational knowledge | `scope=common` |
+| **Similar Tickets** | Historical resolved tickets | `TicketVectorMeta` |
+
+**Reranking Formula:**
+```
+score = 0.70 × cosine_similarity + 0.20 × confidence_weight + 0.10 × recency_score
+```
+
+> [!WARNING]
+> **Placeholder Embeddings!** The `generate_embedding()` function uses **SHA-256 hash** as a fake embedding — NOT a real embedding model. This means vector search results are essentially random. This must be replaced with a real embedding model (e.g., OpenAI `text-embedding-3-small` or `sentence-transformers`) before production.
+
+---
+
+## 8. Issues & Bugs Found
+
+### 🔴 CRITICAL — Security
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| 1 | **SMTP credentials hardcoded** | [smtp_service.py:14-16](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/smtp_service.py#L14-L16) | Gmail email + app password hardcoded in source code. Also duplicated in `.env.local` |
+| 2 | **Groq API key exposed** | [.env.local:1](file:///c:/Users/adity/cqhelper/helpdesk_api/.env.local#L1) | API key committed to repo |
+| 3 | **Mailbox passwords stored in plaintext** | [mailbox.py model](file:///c:/Users/adity/cqhelper/helpdesk_api/app/models/mailbox.py#L10) | `password = Column(String(255))` — no encryption |
+| 4 | **Authentication is COMPLETELY DISABLED** | [auth.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/core/auth.py) | Entire auth module commented out. Every API endpoint is **fully open** with no auth. All `# from app.core.auth import get_current_user` lines are commented across all routers |
+| 5 | **CORS allows all origins** | [main.py:31-32](file:///c:/Users/adity/cqhelper/helpdesk_api/main.py#L31-L32) | `allow_origins=["*"]` — any domain can call the API |
+| 6 | **JWT secret is default** | [config.py:6](file:///c:/Users/adity/cqhelper/helpdesk_api/app/core/config.py#L6) | `SECRET_KEY = "change-this-secret-key"` |
+
+### 🟠 HIGH — Functional Bugs
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| 7 | **Fake embeddings = broken RAG** | [rag_service.py:22-30](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/rag_service.py#L22-L30), [knowledge_base_service.py:147-161](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/knowledge_base_service.py#L147-L161) | SHA-256 hash used as "embedding". Vector search will return essentially meaningless results |
+| 8 | **Duplicate embedding functions** | `rag_service.generate_embedding()` (size=64) vs `knowledge_base_service._generate_embedding_placeholder()` (size=64) vs `knowledge_ingestion._generate_embedding()` (size=32) | **Different vector sizes!** `knowledge_ingestion.py` uses 32-dim vectors while others use 64-dim. This will cause Qdrant dimension mismatch errors |
+| 9 | **Duplicate ingestion code** | [knowledge_base_service.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/knowledge_base_service.py) vs [knowledge_ingestion.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/knowledge_ingestion.py) | Two completely separate implementations of KB document ingestion. Different chunk sizes (400 tokens vs 600 chars), different embedding sizes |
+| 10 | **`send_ai_draft` marks sender as "human"** | [ai_service.py:416](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ai_service.py#L416) | When AI draft is sent, the message is saved with `sender_type="human"` instead of `"ai"` — misrepresents who actually sent it |
+| 11 | **Mailbox missing `organization_id`** | [mailbox.py model](file:///c:/Users/adity/cqhelper/helpdesk_api/app/models/mailbox.py#L8) | Commented out: `# organization_id = Column(BigInteger, nullable=False)`. Without this, mailboxes cannot be scoped to tenants |
+| 12 | **Email tickets hardcode `organization_id=1`** | [email_ticket_service.py:256](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/email_ticket_service.py#L256), [customer_repository.py:25](file:///c:/Users/adity/cqhelper/helpdesk_api/app/repositories/customer_repository.py#L25) | `organization_id=1` hardcoded — will break in multi-tenant setup |
+| 13 | **`customer_repository` doesn't filter by org** | [customer_repository.py:6-16](file:///c:/Users/adity/cqhelper/helpdesk_api/app/repositories/customer_repository.py#L6-L16) | `get_customer_by_email()` doesn't accept `organization_id` — can match customers across orgs |
+| 14 | **Typo in ticket_repository** | [ticket_repository.py:45](file:///c:/Users/adity/cqhelper/helpdesk_api/app/repositories/ticket_repository.py#L45) | `"external_r eference_id"` — broken string with space in key name |
+| 15 | **IMAP sync is synchronous/blocking** | [email_reader_service.py:41-44](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/email_reader_service.py#L41-L44) | Uses `imaplib.IMAP4_SSL` (blocking I/O) in an `async def` function. This blocks the entire event loop during email fetch |
+| 16 | **SMTP send is synchronous/blocking** | [smtp_service.py:35-45](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/smtp_service.py#L35-L45) | `smtplib.SMTP_SSL` (blocking I/O) called directly from async context |
+| 17 | **Duplicate `db.commit()` in ticket reply** | [ticket_service.py:218,243](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ticket_service.py#L218-L243) | `db.commit()` called inside the email try/except AND again after status update. Risk of partial commit if second commit fails |
+
+### 🟡 MEDIUM — Architecture/Design
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| 18 | **No pagination** | All list endpoints | `listTickets`, `listKnowledgeBases`, etc. return ALL records. Will be a performance disaster at scale |
+| 19 | **Debug `print()` statements everywhere** | [ticket_service.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ticket_service.py), [email_ticket_service.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/email_ticket_service.py), [mailbox_processor.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/mailbox_processor.py), [mailbox_sync.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/mailbox_sync.py) | 20+ `print()` calls instead of proper `logger.info()` |
+| 20 | **Massive commented-out code blocks** | [auth.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/core/auth.py), [email_ticket_service.py:1-127](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/email_ticket_service.py#L1-L127), [ticket_message_repository.py:1-18](file:///c:/Users/adity/cqhelper/helpdesk_api/app/repositories/ticket_message_repository.py#L1-L18), [smtp_service.py:53-96](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/smtp_service.py#L53-L96) | Old code should be removed; use git history instead |
+| 21 | **Deprecated `@app.on_event("startup")`** | [main.py:41](file:///c:/Users/adity/cqhelper/helpdesk_api/main.py#L41) | FastAPI deprecation — should use `lifespan` context manager |
+| 22 | **No mailbox sync scheduler** | — | Email sync only runs via manual API call. No cron/background polling. Emails sit unread until someone manually triggers `/mailbox-sync` |
+| 23 | **Inconsistent architecture** | [ai_agents.py](file:///c:/Users/adity/cqhelper/helpdesk_api/app/api/ai_agents.py) | AI agents router does direct DB queries — bypasses service & repository layers entirely |
+| 24 | **Confidence calculation is naive** | [ai_service.py:118-141](file:///c:/Users/adity/cqhelper/helpdesk_api/app/services/ai_service.py#L118-L141) | Confidence = 70 + min(len(text)/10, 20) + min(len(context)/50, 10). This measures text length, not actual quality |
+| 25 | **Schema duplication** | `schemas/routing.py` vs `schemas/routing_rule.py` | Two schema files for routing with duplicated `AIModeEnum`, `RoutingRuleCreate`, `RoutingRuleResponse` |
+| 26 | **Hindi comments mixed in** | Multiple files | Comments like `#Ek company doosri company ka ticket na dekh sake#`, `#ye auto reply by defalut on nh kar rha hain#` — should be English for team consistency |
+| 27 | **No tests** | Entire project | Zero test files. No unit, integration, or e2e tests exist |
+| 28 | **No API versioning strategy** | `main.py` | All routers share `/api/v1` prefix but there's no plan for v2 migration |
+
+---
+
+## 9. Summary Assessment
+
+### What Works Well ✅
+- Clean layered architecture (API → Service → Repository → Model)
+- Good use of async SQLAlchemy with `aiomysql`
+- Solid RAG pipeline design with multi-source retrieval and reranking
+- Comprehensive Pydantic schema validation
+- Email thread detection via `In-Reply-To` + `References` headers
+- TypeScript API client with proper typing
+
+### What Needs Immediate Attention 🚨
+1. **Enable authentication** — The entire API is open
+2. **Remove hardcoded credentials** — SMTP password and API keys in source
+3. **Replace placeholder embeddings** — Vector search is non-functional
+4. **Fix blocking I/O** — IMAP/SMTP calls block the async event loop
+5. **Add email sync scheduler** — Currently manual-only
+6. **Encrypt mailbox passwords** — Stored in plaintext
+7. **Add pagination** to all list endpoints
