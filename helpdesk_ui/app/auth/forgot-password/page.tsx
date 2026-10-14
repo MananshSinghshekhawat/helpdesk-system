@@ -41,7 +41,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="auth-page min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Back Link */}
         <Link
@@ -56,8 +56,12 @@ export default function ForgotPasswordPage() {
           <>
             {/* Header */}
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-primary mb-4">
-                <span className="text-xl font-bold text-primary-foreground">S</span>
+              <div className="mx-auto mb-4 flex h-20 w-full max-w-[19rem] items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-primary/10">
+                <img
+                  src="/workbench-studio-official.png"
+                  alt="Workbench Studio"
+                  className="h-full w-full object-contain"
+                />
               </div>
               <h1 className="text-2xl font-bold text-foreground mb-2">Reset password</h1>
               <p className="text-muted-foreground">

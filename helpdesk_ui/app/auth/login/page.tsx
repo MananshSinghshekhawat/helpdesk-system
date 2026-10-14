@@ -195,31 +195,30 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-background">
-      {/* Animated background */}
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_0%,var(--color-primary)/10%,transparent_70%),radial-gradient(ellipse_at_80%_100%,var(--color-primary)/5%,transparent_60%)]" />
-      <div className="absolute rounded-full blur-[80px] pointer-events-none opacity-15 w-[400px] h-[400px] bg-primary opacity-20 dark:opacity-10 -top-[100px] -right-[100px] animate-[pulse_6s_cubic-bezier(0.4,0,0.6,1)_infinite]" />
-      <div className="absolute rounded-full blur-[80px] pointer-events-none opacity-15 w-[300px] h-[300px] bg-accent opacity-20 dark:opacity-10 -bottom-[50px] -left-[50px] animate-[pulse_7s_cubic-bezier(0.4,0,0.6,1)_infinite]" />
-      <div className="absolute rounded-full blur-[80px] pointer-events-none opacity-15 w-[200px] h-[200px] bg-primary opacity-20 dark:opacity-10 top-[40%] left-[60%] animate-[pulse_5s_cubic-bezier(0.4,0,0.6,1)_infinite]" />
+    <div className="auth-page min-h-screen flex items-center justify-center bg-white p-4">
 
       <div
-        className={`w-full max-w-md relative z-10 transition-all duration-500 rounded-[1.25rem] p-10 bg-card/80 border border-border backdrop-blur-2xl shadow-2xl hover:shadow-[0_20px_40px_-10px_var(--color-primary)/15%]`}
+        className="w-full max-w-md rounded-[1.25rem] border border-slate-200 bg-white p-10 shadow-xl"
       >
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-5">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-primary/10 to-accent/10 shadow-lg shadow-primary/30 animate-[pulse_4s_cubic-bezier(0.4,0,0.6,1)_infinite]">
-              <img src="/favicon.ico" alt="CreditQ Logo" className="w-8 h-8 object-contain drop-shadow-md" />
+          <div className="flex h-20 w-full max-w-[19rem] items-center justify-center">
+              <img
+                src="/workbench-studio-official.png"
+                alt="Workbench Studio"
+              className="max-h-full max-w-full object-contain"
+              />
             </div>
           </div>
 
           {step === 'email' ? (
             <>
               <h1 className="text-2xl font-bold text-foreground mb-2 animate-in fade-in zoom-in-95 duration-500">
-                CreditQ Helpdesk
+                Workbench Studio Helpdesk
               </h1>
               <p className="text-muted-foreground animate-in fade-in zoom-in-95 duration-500 delay-100 fill-mode-both">
-                Sign in to your CreditQ helpdesk account
+                Sign in to your Workbench Studio helpdesk account
               </p>
             </>
           ) : (
@@ -393,7 +392,7 @@ export default function LoginPage() {
         {/* Footer */}
         <div className="mt-8 pt-6 border-t border-border/50 text-center">
           <p className="text-xs text-muted-foreground">
-            Protected by CreditQ · Secure OTP Authentication
+            Protected by Workbench Studio · Secure OTP Authentication
           </p>
         </div>
       </div>

@@ -11,9 +11,16 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Helpdesk | CreditQ',
+  title: 'Helpdesk | Workbench-Studio',
   description: 'Enterprise helpdesk system for managing support tickets and AI agents',
   generator: 'v0.app',
+  icons: {
+    icon: {
+      url: '/icon.png',
+      type: 'image/png',
+    },
+    apple: '/workbench-studio-official.png',
+  },
 }
 
 export default function RootLayout({
