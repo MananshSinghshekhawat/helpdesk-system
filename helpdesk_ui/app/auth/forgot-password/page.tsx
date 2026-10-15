@@ -41,7 +41,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="auth-page min-h-screen bg-white flex items-center justify-center p-4">
+    <div className="auth-page min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Back Link */}
         <Link

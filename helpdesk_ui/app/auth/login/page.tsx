@@ -195,19 +195,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-page min-h-screen flex items-center justify-center bg-white p-4">
+    <div className="auth-page min-h-screen flex items-center justify-center bg-background p-4">
 
       <div
-        className="w-full max-w-md rounded-[1.25rem] border border-slate-200 bg-white p-10 shadow-xl"
+        className="w-full max-w-md rounded-[1.25rem] border border-border bg-card p-10 shadow-xl"
       >
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-5">
-          <div className="flex h-20 w-full max-w-[19rem] items-center justify-center">
+            <div className="flex h-20 w-full max-w-[19rem] items-center justify-center">
               <img
                 src="/workbench-studio-official.png"
                 alt="Workbench Studio"
-              className="max-h-full max-w-full object-contain"
+                className="max-h-full max-w-full object-contain"
               />
             </div>
           </div>
